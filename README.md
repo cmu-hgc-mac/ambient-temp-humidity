@@ -32,7 +32,7 @@ How to set up a temperature and humidity sensor to automatically send ambient da
   * Be sure to select the correct institution in the get_timestamp funtion to adjust for Daylight Savings Time.
     * When the ESP32 in not connected to a PC, time initializes to 01-01-2000.
   * Use the jumper wires to connect the following from sensor to ESP32:
-    * Vin to Vin
+    * Vin to 3V3
     * GND to GND
     * SDA to D21
     * SCL to D22
