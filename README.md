@@ -27,6 +27,7 @@ How to set up a temperature and humidity sensor to automatically send ambient da
   * Install the following:
     * adafruit-circuitpython-htu21d
     * micropg_lite
+    * These files should be visible in a folder called lib in the *View* window. Copy HTU21DF.py to this folder as well.
   * Download main.py from this repository and save to the ESP32.
   * Modify credentials in this file, such as wifi and database information.
   * Be sure to select the correct institution in the get_timestamp funtion to adjust for Daylight Savings Time.

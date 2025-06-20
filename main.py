@@ -1,76 +1,16 @@
 from machine import I2C, Pin
+from HTU21DF import HTU21D
 import time, network, micropg_lite, ntptime
 #import ubinascii
 
-
-class HTU21D(object):
-    ADDRESS = 0x40
-    ISSUE_TEMP_ADDRESS = 0xE3
-    ISSUE_HU_ADDRESS = 0xE5
-
-    def __init__(self, scl, sda):
-        """Initiate the HUT21D
-        Args:
-            scl (int): Pin id where the sdl pin is connected to
-            sda (int): Pin id where the sda pin is connected to
-        """
-        self.i2c = I2C(scl=Pin(scl), sda=Pin(sda), freq=100000)
-
-
-    def _crc_check(self, value):
-        """CRC check data
-        Notes:
-            stolen from https://github.com/sparkfun/HTU21D_Breakout
-
-        Args:
-            value (bytearray): data to be checked for validity
-        Returns:
-            True if valid, False otherwise
-        """
-        remainder = ((value[0] << 8) + value[1]) << 8
-        remainder |= value[2]
-        divsor = 0x988000
-
-        for i in range(0, 16):
-            if remainder & 1 << (23 - i):
-                remainder ^= divsor
-            divsor >>= 1
-
-        if remainder == 0:
-            return True
-        else:
-            return False
-
-    def _issue_measurement(self, write_address):
-        """Issue a measurement.
-        Args:
-            write_address (int): address to write to
-        :return:
-        """
-        #self.i2c.start()
-        self.i2c.writeto_mem(int(self.ADDRESS), int(write_address), '')
-        #self.i2c.stop()
-        time.sleep_ms(50)
-        data = bytearray(3)
-        self.i2c.readfrom_into(self.ADDRESS, data)
-        if not self._crc_check(data):
-            raise ValueError()
-        raw = (data[0] << 8) + data[1]
-        raw &= 0xFFFC
-        return raw
-
-    @property
-    def temperature(self):
-        """Calculate temperature"""
-        raw = self._issue_measurement(self.ISSUE_TEMP_ADDRESS)
-        return -46.85 + (175.72 * raw / 65536)
-
-    @property
-    def humidity(self):
-        """Calculate humidity"""
-        raw =  self._issue_measurement(self.ISSUE_HU_ADDRESS)
-        return -6 + (125.0 * raw / 65536)
-
+def wifi_connect(ssid, password):
+    while wlan.isconnected() == False:
+        wlan.connect(ssid, password)
+        print('Connecting to wifi...')
+        time.sleep(5)
+    print("Connected to "+ ssid)
+    return(None)
+        
 def UTC_DST_adj(): ### Daylight Savings Time accounted for: https://forum.micropython.org/viewtopic.php?f=2&t=4034
     inst = "CMU"
     now=time.time()
@@ -105,6 +45,7 @@ def UTC_DST_adj(): ### Daylight Savings Time accounted for: https://forum.microp
 def get_timestamp():
     lt=UTC_DST_adj()
     lt_str = []
+#    lt = time.localtime(time.time())
     for item in lt:
         if item < 10:
             item = "0" + str(item)
@@ -121,7 +62,7 @@ def get_timestamp():
 db_host = 'cmsmac04.phys.cmu.edu'
 db_user = 'shipper'
 db_password = 'hgcal'
-db_database = 'hgcdb_test'
+db_database = 'hgcdb'
 log_location = 'main_clean_room'
     
 htu = HTU21D(22,21) ### SDA and SCL pins
@@ -131,11 +72,8 @@ ssid = 'CMU-DEVICE'
 password = ""
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
-while wlan.isconnected() == False:
-    wlan.connect(ssid, password)
-    print('Connecting to wifi...')
-    time.sleep(5)
-print("Connected to "+ ssid)
+wifi_connect(ssid, password)
+
 #print("MAC address is " + ubinascii.hexlify(wlan.config('mac')).decode())
 
 ### Sync with NTP
@@ -150,18 +88,20 @@ while NTPerror == True:
         time.sleep(5)
 print("Clock synced with NTP")    
 
-#rtc = RTC() ### sync time 
-
-### Connect to Local DB
-print("Connecting to local DB...")
-conn = micropg_lite.connect(host=db_host,
+def log_to_DB(ssid, password, db_host, db_user, db_password, db_database):
+    start_time = time.ticks_ms()
+    wifi_connect(ssid, password)
+    try:
+        print("Connecting to local DB...")
+        conn = micropg_lite.connect(host=db_host,
                         user=db_user,
                         password=db_password,
                         database=db_database)
-print("Connected to local DB")
-cur = conn.cursor()
-
-while True:
+        print("Connected to local DB")
+    except OSError:
+        print("Unable to connect to DB, try again in 1 minute")
+        return(60)
+    cur = conn.cursor()
     log_timestamp = get_timestamp()
     print(log_timestamp)
     rel_hum = str(round(htu.humidity,2))
@@ -171,6 +111,10 @@ while True:
     print("*****************************")
     cur.execute("INSERT INTO temp_humidity (log_timestamp, log_location, temp_c, rel_hum) VALUES (%s, %s, %s, %s)", [log_timestamp, log_location, temp_c, rel_hum])
     conn.commit()
-    time.sleep(5*60)   # log every 5 minutes
+    conn.close()
+    return(600-((time.ticks_ms()-start_time)/1000))
+
+while True:
+    log_time = log_to_DB(ssid, password, db_host, db_user, db_password, db_database)
+    time.sleep(log_time)
     
-conn.close()
